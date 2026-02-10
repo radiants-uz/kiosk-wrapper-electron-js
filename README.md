@@ -63,3 +63,4 @@ The Vite configuration is optimized for Electron with:
 - Proper build output configuration
 - Fixed port for dev server
 # electron-js-kiosk-mode
+# kiosk-application-electron-js

@@ -1,6 +1,7 @@
 // Renderer overlay for offline mode - mounted only when the external URL
 // failed to load and the local fallback is showing. Visible buttons (opacity
 // 1) since the user needs a way to retry or restart the kiosk.
+//hello world
 
 (() => {
   if (window.__kioskOfflineButtonsInjected) return;

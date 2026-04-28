@@ -57,7 +57,6 @@ let updaterCleanup = null;
 // Single mutator for the kiosk close-handler's exit guard. Both the IPC
 // exit path and the auto-updater's quitAndInstall need to flip this before
 // triggering app.quit, so a named helper makes the intent obvious.
-//hello world
 function requestKioskQuit() {
   isExiting = true;
 }

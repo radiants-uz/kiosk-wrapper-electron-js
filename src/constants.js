@@ -20,7 +20,7 @@ const IPC = Object.freeze({
 
 // Auto-update timing
 const UPDATE_CHECK_INITIAL_DELAY_MS = 30 * 1000;
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const INSTALL_WINDOW_START_HOUR = 3;
 const INSTALL_WINDOW_END_HOUR = 5;
 // Watchdog interval that re-checks the wall clock - sleep-resistant

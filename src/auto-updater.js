@@ -55,6 +55,11 @@ function setup({ appVersion, isPackaged, requestQuit, logFileMaxBytes }) {
   }
 
   autoUpdater.logger = log;
+  // Builds are unsigned (no code-signing certificate). Skip Authenticode
+  // publisher verification — integrity is still enforced via the sha512 in
+  // latest.yml fetched over HTTPS from GitHub. Without this override every
+  // update is rejected with "not signed by the application owner".
+  autoUpdater.verifyUpdateCodeSignature = () => Promise.resolve(null);
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   log.info(`[App] v${appVersion} starting (auto-updater enabled).`);

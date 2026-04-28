@@ -34,9 +34,9 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://updates.example.com/museum-app/",
-        "channel": "latest"
+        "provider": "github",
+        "owner": "radiants-uz",
+        "repo": "kiosk-wrapper-electron-js"
       }
     ],
     "files": [
@@ -46,6 +46,7 @@
       "package.json",
       "entitlements.plist",
       "Info.plist",
+      "src/**/*",
       "node_modules/**/*"
     ],
     "mac": {

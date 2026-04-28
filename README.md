@@ -69,64 +69,65 @@ The Vite configuration is optimized for Electron with:
 
 ## Auto-Updates (museum kiosk fleet)
 
-The app uses [`electron-updater`](https://www.electron.build/auto-update) with the `generic` provider to pull updates from a self-hosted server. Update flow on each of the 20 kiosks:
+The app uses [`electron-updater`](https://www.electron.build/auto-update) with the `github` provider, pulling updates from GitHub Releases of `radiants-uz/kiosk-wrapper-electron-js`. Update flow on each of the 20 kiosks:
 
 1. App launches normally — never blocks on the update server.
-2. ~30 seconds after launch and then every 4 hours, it checks the update URL.
+2. ~30 seconds after launch and then every 4 hours, it queries the GitHub Releases API for a newer version.
 3. If a newer version exists, it's downloaded silently in the background.
-4. Once downloaded, the install is scheduled for the next 03:00–05:00 local-time window. If the PC restarts before then, the update installs on next quit (`autoInstallOnAppQuit`).
+4. Once downloaded, install is **deferred** until the local-time clock enters the 03:00–05:00 window — checked by a 5-minute watchdog so OS hibernate / sleep can't drift the install into visitor hours. If the PC reboots before that window, `autoInstallOnAppQuit` catches the leftover update on the next clean exit.
 5. After install, the app relaunches automatically (the kiosk comes back up on its own).
 
-All update activity is logged to `%AppData%\Iccu Platform\logs\main.log` on the kiosk PC. Pull this file remotely (TeamViewer / RDP / file share) to debug any update issue.
+All update activity is logged to `%AppData%\Iccu Platform\logs\main.log` on Windows (`~/Library/Logs/Iccu Platform/main.log` on macOS). The log file rotates at 5 MB. Pull it remotely (TeamViewer / RDP / file share) to debug any update issue.
 
-### Bumping the version and shipping a new build
+### Bumping the version and shipping a release
 
-1. Edit `version` in [package.json](package.json) (e.g. `2.0.1` → `2.0.2`). `electron-updater` uses semver, so the new version must be strictly greater than the deployed one.
-2. From a Windows machine (or use the existing CI), run:
+1. Bump `version` in [package.json](package.json) (e.g. `2.0.1` → `2.0.2`). Must be strictly greater than the deployed version (semver).
+2. Build on Windows:
    ```
    npm install
    npm run dist:win
    ```
-3. Three artifacts to upload from [dist/](dist/):
+3. Create a new **GitHub Release** on `radiants-uz/kiosk-wrapper-electron-js` with tag `v2.0.2` (matching the version). Attach all three artifacts from [dist/](dist/):
    - `Iccu Platform Setup X.Y.Z.exe` — the full installer
-   - `Iccu Platform Setup X.Y.Z.exe.blockmap` — used for delta updates (smaller downloads)
-   - `latest.yml` — the metadata file the updater fetches first
+   - `Iccu Platform Setup X.Y.Z.exe.blockmap` — for delta updates
+   - `latest.yml` — the metadata file electron-updater fetches first
 
-### Where to put them on the update server
+   You can do this manually via the GitHub web UI, or set `GH_TOKEN` and run `npm run dist:win -- --publish always` to upload automatically.
 
-The configured publish URL is `https://updates.example.com/museum-app/`. **Replace this placeholder** in [package.json](package.json) (`build.publish[0].url`) before the first real release.
-
-Upload all three files into that directory, accessible exactly as:
-```
-https://updates.example.com/museum-app/latest.yml
-https://updates.example.com/museum-app/Iccu Platform Setup X.Y.Z.exe
-https://updates.example.com/museum-app/Iccu Platform Setup X.Y.Z.exe.blockmap
-```
-
-Server-side requirements:
-- HTTPS strongly recommended (avoids MITM tampering with installers).
-- The web server must serve `.yml` files with a sensible `Content-Type` (text/plain or text/yaml). Some setups default to `application/octet-stream` and downloads still work, but it's worth verifying on first deploy.
-- The exe URL contains a space — make sure the server URL-encodes correctly. Most do; verify by hitting the URL in a browser.
+4. **Public vs private repo**: `electron-updater` works with public repos out of the box. If `radiants-uz/kiosk-wrapper-electron-js` is private, kiosks need a `GH_TOKEN` env var (or a `token` field on the `publish` config) to authenticate. Public is simpler operationally.
 
 ### Testing on one kiosk before rolling out
 
-Critical: never push an untested build to all 20 PCs.
+Critical: never push an untested release to all 20 PCs.
 
 1. Bump version to e.g. `2.0.2-test` and build.
-2. Upload the three artifacts to the update server.
-3. On ONE kiosk: launch the app and tail the log file:
+2. Publish a release as above (mark as **pre-release** if you want to keep it out of "latest" — but note electron-updater with default settings only picks up non-prereleases unless `allowPrerelease` is set).
+3. On ONE kiosk, tail the log:
    ```
    Get-Content "$env:APPDATA\Iccu Platform\logs\main.log" -Wait
    ```
-4. Within ~30 seconds you should see `Checking for updates...`, then `Update available: v2.0.2-test`, then `Download X%`, then `Update v2.0.2-test downloaded - scheduling install.`
-5. To skip the 03:00 wait during testing, you can either wait or temporarily change the schedule logic in [main.js](main.js) `scheduleQuietInstall()`. Keep that change OUT of the production build.
-6. Confirm the app relaunches on its own and reports the new version in the log on next start.
-7. Only after that one kiosk is healthy, leave the other 19 to pick up the update on their next interval.
+4. Within ~30 seconds you should see `Checking for updates...`, then `Update available: v2.0.2-test`, then `Download …%` lines (one per 10% boundary), then `Update v2.0.2-test downloaded - awaiting install window.`
+5. The actual install happens on the next 03:00–05:00 local-time tick. To trigger sooner during testing, temporarily widen the install window in [src/constants.js](src/constants.js) (`INSTALL_WINDOW_START_HOUR` / `INSTALL_WINDOW_END_HOUR`) — keep that change OUT of the production build.
+6. Confirm the app relaunches on its own and the log reports the new version on next start.
+7. Only after that one kiosk is healthy, leave the other 19 to pick up the update on their next 4-hour interval.
 
 ### First-time deployment notes
 
 - The currently deployed v2.0.1 builds were installed under `productName: history` and `appId: com.kiosk.secure-app`. The new build uses `Iccu Platform` / `iccu.museum.touchscreen`. **NSIS will treat this as a different application** — you'll need to manually uninstall the old "history" app and install the new "Iccu Platform" build once on each kiosk. From that point forward, all future updates are automatic.
-- The auto-update mechanism requires the kiosk PC to run the app with permissions to write to `Program Files` (per-machine install). The current config assumes this — if a kiosk runs as a limited user, `quitAndInstall` will silently fail. Check the log file to confirm.
+- Auto-updates require the kiosk to run the app with permission to write to `Program Files` (per-machine install). If a kiosk runs as a limited user, `quitAndInstall` will silently fail — confirm via the log file.
+
+## Project layout
+
+```
+main.js                  - Bootstrap, window creation, IPC, kiosk hardening
+src/constants.js         - All magic numbers, IPC channels, app URL
+src/auto-updater.js      - Self-contained electron-updater integration
+src/overlay-base.js      - Renderer overlay: zoom + invisible exit button
+src/overlay-offline.js   - Renderer overlay: try-again + restart-pc buttons
+installer.nsh            - NSIS hook to taskkill running app before install
+preload.js               - (currently unused; kept for future contextBridge migration)
+index.html               - Local fallback shown when offline
+```
 
 # kiosk-wrapper-electron-js
 # kiosk-wrapper-electron-js

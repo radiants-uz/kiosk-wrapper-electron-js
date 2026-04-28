@@ -1,29 +1,23 @@
 // Auto-update flow for unattended museum kiosks.
 //
-// Design constraints (why this is more involved than `autoUpdater.checkForUpdatesAndNotify`):
-//   * Never show dialogs - kiosks have no operator standing by.
-//   * Never block startup or crash on a bad update server. Failures log + retry.
-//   * Defer install to 03:00-05:00 local so a kiosk doesn't restart in front
-//     of a museum visitor.
-//   * Sleep-resistant scheduling: a single multi-hour setTimeout drifts
-//     across OS hibernate, so a 5-minute watchdog re-evaluates the wall clock.
-//   * Belt: autoInstallOnAppQuit catches the case where the PC reboots
-//     before the watchdog fires.
+// Behavior:
+//   * Never shows dialogs - kiosks have no operator standing by.
+//   * Never blocks startup - if the update server is unreachable, the app
+//     boots normally and just retries on the next interval.
+//   * Installs updates IMMEDIATELY when downloaded - the kiosk restarts as
+//     soon as a new build is ready (typically <1 minute end-to-end).
+//   * Belt-and-suspenders: autoInstallOnAppQuit catches anything missed
+//     (e.g. PC reboot mid-download).
 
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const {
   UPDATE_CHECK_INITIAL_DELAY_MS,
   UPDATE_CHECK_INTERVAL_MS,
-  INSTALL_WINDOW_START_HOUR,
-  INSTALL_WINDOW_END_HOUR,
-  INSTALL_WATCHDOG_INTERVAL_MS,
 } = require("./constants");
 
 let initialized = false;
 let pollTimers = [];
-let installWatchdogId = null;
-let updateReady = false;
 
 const fmtErr = (err) =>
   err ? String(err.stack || err.message || err) : "unknown";
@@ -34,33 +28,12 @@ function safeCheckForUpdates() {
   });
 }
 
-function isInsideInstallWindow(date) {
-  const h = date.getHours();
-  return h >= INSTALL_WINDOW_START_HOUR && h < INSTALL_WINDOW_END_HOUR;
-}
-
-function startInstallWatchdog(requestQuit) {
-  if (installWatchdogId) return;
-  installWatchdogId = setInterval(() => {
-    if (!updateReady) return;
-    if (!isInsideInstallWindow(new Date())) return;
-    log.info("[Updater] Inside install window, calling quitAndInstall.");
-    requestQuit();
-    // isSilent=true (no UI), isForceRunAfter=true (relaunch app post-install).
-    autoUpdater.quitAndInstall(true, true);
-  }, INSTALL_WATCHDOG_INTERVAL_MS);
-}
-
 function cleanup() {
   pollTimers.forEach((t) => {
     clearTimeout(t);
     clearInterval(t);
   });
   pollTimers = [];
-  if (installWatchdogId) {
-    clearInterval(installWatchdogId);
-    installWatchdogId = null;
-  }
 }
 
 function setup({ appVersion, isPackaged, requestQuit, logFileMaxBytes }) {
@@ -116,11 +89,11 @@ function setup({ appVersion, isPackaged, requestQuit, logFileMaxBytes }) {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
-    log.info(
-      `[Updater] Update v${info.version} downloaded - awaiting install window.`,
-    );
-    updateReady = true;
-    startInstallWatchdog(requestQuit);
+    log.info(`[Updater] Update v${info.version} downloaded - installing now.`);
+    requestQuit();
+    // isSilent=true (no UI), isForceRunAfter=true (relaunch post-install
+    // so the kiosk comes back up without manual intervention).
+    autoUpdater.quitAndInstall(true, true);
   });
 
   pollTimers.push(setTimeout(safeCheckForUpdates, UPDATE_CHECK_INITIAL_DELAY_MS));

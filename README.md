@@ -72,10 +72,12 @@ The Vite configuration is optimized for Electron with:
 The app uses [`electron-updater`](https://www.electron.build/auto-update) with the `github` provider, pulling updates from GitHub Releases of `radiants-uz/kiosk-wrapper-electron-js`. Update flow on each of the 20 kiosks:
 
 1. App launches normally — never blocks on the update server.
-2. ~30 seconds after launch and then every 4 hours, it queries the GitHub Releases API for a newer version.
+2. ~30 seconds after launch and then **every 5 minutes**, it queries GitHub Releases for a newer version.
 3. If a newer version exists, it's downloaded silently in the background.
-4. Once downloaded, install is **deferred** until the local-time clock enters the 03:00–05:00 window — checked by a 5-minute watchdog so OS hibernate / sleep can't drift the install into visitor hours. If the PC reboots before that window, `autoInstallOnAppQuit` catches the leftover update on the next clean exit.
+4. The moment the download finishes, the kiosk **restarts and installs immediately** — no time-of-day wait. End-to-end from `git push --follow-tags` to "all kiosks running new version" takes roughly 5–10 minutes.
 5. After install, the app relaunches automatically (the kiosk comes back up on its own).
+
+> ⚠️ **Visible downtime trade-off:** because installs fire as soon as a release is downloaded, kiosks will restart in front of visitors when an update lands. Each restart is ~30 seconds of dark screen. If you need to schedule installs for off-hours, re-add a window check in [src/auto-updater.js](src/auto-updater.js) `update-downloaded` handler.
 
 All update activity is logged to `%AppData%\Iccu Platform\logs\main.log` on Windows (`~/Library/Logs/Iccu Platform/main.log` on macOS). The log file rotates at 5 MB. Pull it remotely (TeamViewer / RDP / file share) to debug any update issue.
 
@@ -99,7 +101,7 @@ That triggers the workflow, which on a Windows runner:
 3. Runs `electron-builder --win --publish always`
 4. Creates a public release at `https://github.com/radiants-uz/kiosk-wrapper-electron-js/releases/tag/v2.0.2` with `Iccu Platform Setup 2.0.2.exe`, the `.blockmap`, and `latest.yml` attached
 
-The 20 kiosks see the new release on their next 4-hour update check, download in the background, and install during the next 03:00–05:00 window.
+The 20 kiosks see the new release within 5 minutes, download in the background, and restart-to-install as soon as the download finishes.
 
 **Watching a release:** https://github.com/radiants-uz/kiosk-wrapper-electron-js/actions — each tag push shows up as a workflow run. Build takes ~3–5 minutes.
 
@@ -117,10 +119,9 @@ Critical: never push an untested release to all 20 PCs.
    ```
    Get-Content "$env:APPDATA\Iccu Platform\logs\main.log" -Wait
    ```
-4. Within ~30 seconds you should see `Checking for updates...`, then `Update available: v2.0.2-test`, then `Download …%` lines (one per 10% boundary), then `Update v2.0.2-test downloaded - awaiting install window.`
-5. The actual install happens on the next 03:00–05:00 local-time tick. To trigger sooner during testing, temporarily widen the install window in [src/constants.js](src/constants.js) (`INSTALL_WINDOW_START_HOUR` / `INSTALL_WINDOW_END_HOUR`) — keep that change OUT of the production build.
-6. Confirm the app relaunches on its own and the log reports the new version on next start.
-7. Only after that one kiosk is healthy, leave the other 19 to pick up the update on their next 4-hour interval.
+4. Within ~30 seconds you should see `Checking for updates...`, then `Update available: v2.0.2-test`, then `Download …%` lines (one per 10% boundary), then `Update v2.0.2-test downloaded - installing now.` followed by an immediate restart.
+5. After the kiosk restarts, the version label in the bottom-right corner should show `v2.0.2-test`.
+6. Only after that one kiosk is healthy, leave the other 19 to pick up the update within their 5-minute interval.
 
 ### First-time deployment notes
 

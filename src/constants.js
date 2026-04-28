@@ -21,11 +21,6 @@ const IPC = Object.freeze({
 // Auto-update timing
 const UPDATE_CHECK_INITIAL_DELAY_MS = 30 * 1000;
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
-const INSTALL_WINDOW_START_HOUR = 3;
-const INSTALL_WINDOW_END_HOUR = 5;
-// Watchdog interval that re-checks the wall clock - sleep-resistant
-// alternative to a multi-hour setTimeout that would drift through hibernate.
-const INSTALL_WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
 
 // Network retry loop while in offline-fallback mode
 const ONLINE_RETRY_INTERVAL_MS = 30 * 1000;
@@ -42,9 +37,6 @@ module.exports = {
   IPC,
   UPDATE_CHECK_INITIAL_DELAY_MS,
   UPDATE_CHECK_INTERVAL_MS,
-  INSTALL_WINDOW_START_HOUR,
-  INSTALL_WINDOW_END_HOUR,
-  INSTALL_WATCHDOG_INTERVAL_MS,
   ONLINE_RETRY_INTERVAL_MS,
   DEFAULT_ZOOM_FACTOR,
   LOG_FILE_MAX_BYTES,

@@ -37,9 +37,14 @@ const OVERLAY_OFFLINE_JS = fs.readFileSync(
   path.join(__dirname, "src", "overlay-offline.js"),
   "utf8",
 );
-// Preamble exposes IPC channel constants to the overlay scripts so renderer
-// code never hard-codes channel-name strings (single source: src/constants.js).
-const IPC_PREAMBLE = `window.__IPC = ${JSON.stringify(IPC)};`;
+// Preamble exposes IPC channel constants and the app version to the overlay
+// scripts so renderer code never hard-codes them.
+function buildOverlayPreamble() {
+  return (
+    `window.__IPC = ${JSON.stringify(IPC)};` +
+    `window.__APP_VERSION = ${JSON.stringify(app.getVersion())};`
+  );
+}
 
 let mainWindow = null;
 let isExiting = false;
@@ -69,7 +74,7 @@ async function checkMicrophonePermission() {
 
 function injectOverlay(webContents, includeOffline) {
   const script =
-    IPC_PREAMBLE +
+    buildOverlayPreamble() +
     OVERLAY_BASE_JS +
     (includeOffline ? OVERLAY_OFFLINE_JS : "");
   webContents.executeJavaScript(script).catch((err) => {

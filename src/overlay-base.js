@@ -117,4 +117,24 @@
   document.body.appendChild(zoomIn);
   document.body.appendChild(zoomOut);
   document.body.appendChild(exitBtn);
+
+  // Bottom-right version label - lets a tech support person glance at a
+  // kiosk screen and know which build is running. pointer-events:none so it
+  // never intercepts clicks on the underlying website.
+  const versionLabel = document.createElement("div");
+  versionLabel.textContent = "v" + (window.__APP_VERSION || "?");
+  versionLabel.style.cssText = `
+    position: fixed;
+    bottom: 8px;
+    right: 12px;
+    z-index: 999999;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  `;
+  document.body.appendChild(versionLabel);
 })();

@@ -18,17 +18,27 @@
   "author": "Your Name",
   "license": "MIT",
   "description": "history-2.0",
-  "dependencies": {},
+  "dependencies": {
+    "electron-log": "^5.1.5",
+    "electron-updater": "^6.3.9"
+  },
   "devDependencies": {
     "electron": "^28.1.2",
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.kiosk.secure-app",
-    "productName": "history",
+    "appId": "iccu.museum.touchscreen",
+    "productName": "Iccu Platform",
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.example.com/museum-app/",
+        "channel": "latest"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",
@@ -79,7 +89,7 @@
       "installerHeaderIcon": "build/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "history",
+      "shortcutName": "Iccu Platform",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": false,
       "include": "installer.nsh",

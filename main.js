@@ -7,7 +7,15 @@ const {
 } = require("electron");
 const path = require("path");
 
-const APP_URL = "https://humo.hron.uz/";
+// --- Auto-update stack ---
+// electron-updater handles checking/downloading/installing new versions
+// from the generic publish URL configured in package.json's `build.publish`.
+// electron-log persists update logs to disk so we can debug issues remotely
+// on any of the 20 kiosk PCs without needing physical access.
+const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
+
+const APP_URL = "https://lh.neovex.uz/";
 const OFFLINE_FALLBACK_PATH = path.join(__dirname, "index.html");
 const ALLOWED_HOSTNAMES = new Set(["humo.hron.uz", "www.humo.hron.uz"]);
 
@@ -55,7 +63,7 @@ function createWindow() {
   mainWindow.webContents.session.setPermissionRequestHandler(
     (webContents, permission, callback, details) => {
       console.log(
-        `[Permission Request] ${permission} from ${details.requestingUrl}`
+        `[Permission Request] ${permission} from ${details.requestingUrl}`,
       );
 
       if (
@@ -69,27 +77,27 @@ function createWindow() {
           console.log(
             `[Permission] ${
               allowed ? "Granted" : "Denied"
-            }: ${permission} for ${requestingUrl.hostname}`
+            }: ${permission} for ${requestingUrl.hostname}`,
           );
           return callback(allowed);
         } catch (error) {
           console.warn(
             `[Permission] Denied: ${permission} due to invalid URL`,
-            details.requestingUrl
+            details.requestingUrl,
           );
           return callback(false);
         }
       }
 
       callback(false);
-    }
+    },
   );
 
   mainWindow.webContents.on(
     "console-message",
     (event, level, message, line, sourceId) => {
       console.log(`[Renderer Console] ${message}`);
-    }
+    },
   );
 
   const startOnlineRetryLoop = () => {
@@ -122,7 +130,7 @@ function createWindow() {
     } catch (error) {
       console.log(
         "Offline or failed to load external URL, showing local fallback:",
-        error.message
+        error.message,
       );
       isOfflineMode = true;
       await mainWindow.loadFile(OFFLINE_FALLBACK_PATH);
@@ -132,7 +140,11 @@ function createWindow() {
 
   loadApp();
 
-  mainWindow.webContents.once("dom-ready", async () => {
+  // Use `.on` (not `.once`) so the kiosk overlay buttons re-inject on every
+  // page load - including after "Try Again" reloads the external URL or any
+  // hard navigation. The injected JS is wrapped in an IIFE with a window
+  // flag so re-running on the same document is a no-op.
+  mainWindow.webContents.on("dom-ready", async () => {
     // Set zoom factor to 0.75 (75%) as soon as DOM is ready
     try {
       await mainWindow.webContents.setZoomFactor(0.75);
@@ -142,8 +154,14 @@ function createWindow() {
 
     // Add exit button and zoom buttons
     mainWindow.webContents.executeJavaScript(`
+      (() => {
+      // Idempotency guard: if buttons are already mounted in this document
+      // (e.g. SPA soft-navigation didn't replace window), skip re-mounting.
+      if (window.__kioskButtonsInjected) { return; }
+      window.__kioskButtonsInjected = true;
+
       const { ipcRenderer } = require('electron');
-      
+
       // Create zoom in button
       const zoomInButton = document.createElement('button');
       zoomInButton.innerHTML = '+';
@@ -299,13 +317,18 @@ function createWindow() {
       document.body.appendChild(zoomInButton);
       document.body.appendChild(zoomOutButton);
       document.body.appendChild(exitButton);
+      })();
     `);
 
     // Add "Try Again" button if in offline mode
     if (isOfflineMode) {
       mainWindow.webContents.executeJavaScript(`
+        (() => {
+        if (window.__kioskOfflineButtonsInjected) { return; }
+        window.__kioskOfflineButtonsInjected = true;
+
         const { ipcRenderer } = require('electron');
-        
+
         const tryAgainButton = document.createElement('button');
         tryAgainButton.innerHTML = '🔄 Try Again';
         tryAgainButton.style.cssText = \`
@@ -414,6 +437,7 @@ function createWindow() {
         }, { passive: true });
 
         document.body.appendChild(restartButton);
+        })();
       `);
     }
   });
@@ -498,6 +522,150 @@ function createWindow() {
   });
 }
 
+// =============================================================================
+// AUTO-UPDATER
+// =============================================================================
+// Kiosks run unattended, so this updater:
+//   * NEVER shows dialogs or modal UI - any failure is just logged
+//   * Downloads updates silently in the background
+//   * Schedules the actual install for 03:00-05:00 local time so kiosks
+//     don't restart in front of museum visitors
+//   * Falls back to "install on next quit" via autoInstallOnAppQuit if the
+//     scheduled timer doesn't fire (e.g. PC was rebooted before 03:00)
+//   * Never throws into startup - if the update server is unreachable, the
+//     app boots normally and just retries on the next interval
+// Logs are written to:
+//   Windows: %AppData%\Iccu Platform\logs\main.log
+// (Pull this file off a kiosk to debug remote update problems.)
+
+function safeCheckForUpdates() {
+  // Wrap in try/catch AND attach a .catch to the returned promise.
+  // electron-updater can throw synchronously (e.g. malformed URL) OR reject
+  // asynchronously (e.g. network error). We must handle both, otherwise an
+  // unreachable update server would crash the kiosk.
+  try {
+    const result = autoUpdater.checkForUpdates();
+    if (result && typeof result.catch === "function") {
+      result.catch((err) => {
+        log.warn(
+          "[Updater] checkForUpdates rejected (non-fatal):",
+          err && err.message ? err.message : err,
+        );
+      });
+    }
+  } catch (err) {
+    log.warn(
+      "[Updater] checkForUpdates threw (non-fatal):",
+      err && err.message ? err.message : err,
+    );
+  }
+}
+
+function scheduleQuietInstall() {
+  // Compute milliseconds until the next 03:00 local time.
+  // If we're currently inside the install window (03:00-05:00), install
+  // immediately. Otherwise, sleep until the next 03:00.
+  const now = new Date();
+  const hour = now.getHours();
+
+  if (hour >= 3 && hour < 5) {
+    log.info("[Updater] Inside 03:00-05:00 window, installing now.");
+    triggerQuitAndInstall();
+    return;
+  }
+
+  const target = new Date(now);
+  target.setHours(3, 0, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1); // already past 03:00, aim tomorrow
+  }
+  const ms = target.getTime() - now.getTime();
+  log.info(
+    `[Updater] Scheduling install at ${target.toString()} (in ${(
+      ms /
+      1000 /
+      60 /
+      60
+    ).toFixed(2)}h).`,
+  );
+  setTimeout(triggerQuitAndInstall, ms);
+}
+
+function triggerQuitAndInstall() {
+  // The kiosk close-handler in createWindow() blocks app.quit() while
+  // isKioskMode is true and isExiting is false. We MUST flip isExiting
+  // before quitAndInstall, otherwise the quit gets cancelled and the
+  // installer never runs.
+  log.info("[Updater] Calling quitAndInstall.");
+  isExiting = true;
+  // quitAndInstall(isSilent=true, isForceRunAfter=true)
+  //   isSilent=true        -> no UI prompts during install
+  //   isForceRunAfter=true -> relaunch app after install completes
+  //                            (so the kiosk comes back up automatically)
+  autoUpdater.quitAndInstall(true, true);
+}
+
+function setupAutoUpdater() {
+  // Only run the updater in packaged builds. In dev (`npm start`),
+  // app.isPackaged is false and electron-updater would throw because
+  // there's no update metadata to resolve.
+  if (!app.isPackaged) {
+    log.info("[Updater] Skipped (not packaged - running in dev mode).");
+    return;
+  }
+
+  // Wire electron-log as the updater's logger.
+  // file.level = "info" keeps the log file useful without too much noise.
+  log.transports.file.level = "info";
+  log.transports.console.level = "debug";
+  autoUpdater.logger = log;
+  log.info(
+    `[App] Iccu Platform v${app.getVersion()} starting (auto-updater enabled).`,
+  );
+
+  // Default behavior tuned for unattended kiosks.
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Subscribe to events ONLY for logging - never show dialogs.
+  autoUpdater.on("checking-for-update", () => {
+    log.info("[Updater] Checking for updates...");
+  });
+  autoUpdater.on("update-available", (info) => {
+    log.info(`[Updater] Update available: v${info.version}`);
+  });
+  autoUpdater.on("update-not-available", (info) => {
+    log.info(
+      `[Updater] No update available (current: v${info && info.version}).`,
+    );
+  });
+  autoUpdater.on("error", (err) => {
+    // Non-fatal - log and move on. The next interval check will retry.
+    log.warn(
+      "[Updater] Error (non-fatal):",
+      err && err.stack ? err.stack : err,
+    );
+  });
+  autoUpdater.on("download-progress", (p) => {
+    log.info(
+      `[Updater] Download ${p.percent.toFixed(1)}% (${p.transferred}/${
+        p.total
+      } bytes, ${(p.bytesPerSecond / 1024).toFixed(0)} KB/s)`,
+    );
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info(
+      `[Updater] Update v${info.version} downloaded - scheduling install.`,
+    );
+    scheduleQuietInstall();
+  });
+
+  // Initial check 30s after launch so the page has time to load first.
+  setTimeout(safeCheckForUpdates, 30 * 1000);
+  // Recurring check every 4 hours while the kiosk is up.
+  setInterval(safeCheckForUpdates, 4 * 60 * 60 * 1000);
+}
+
 app.whenReady().then(async () => {
   // Enable auto-start on system boot
   app.setLoginItemSettings({
@@ -506,8 +674,21 @@ app.whenReady().then(async () => {
     args: [],
   });
 
+  // macOS belt-and-suspenders: kiosk:true already hides the menu bar, but the
+  // dock can still be revealed by an aggressive mouse-to-bottom in some
+  // configurations. Hiding the dock at the app level prevents it entirely.
+  // (No-op on Windows/Linux because app.dock only exists on darwin.)
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.hide();
+  }
+
   await checkMicrophonePermission();
   createWindow();
+
+  // Start the auto-update flow AFTER the window exists - this way log lines
+  // from the updater can co-exist with the renderer output and we know the
+  // kiosk UI is visible to the user before any update work begins.
+  setupAutoUpdater();
 
   // Handle exit request from button
   ipcMain.on("request-exit", () => {
@@ -584,7 +765,7 @@ app.whenReady().then(async () => {
               if (fallbackError) {
                 console.error("macOS restart fallback failed:", fallbackError);
               }
-            }
+            },
           );
         }
       });

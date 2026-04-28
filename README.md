@@ -129,3 +129,4 @@ Critical: never push an untested build to all 20 PCs.
 - The auto-update mechanism requires the kiosk PC to run the app with permissions to write to `Program Files` (per-machine install). The current config assumes this — if a kiosk runs as a limited user, `quitAndInstall` will silently fail. Check the log file to confirm.
 
 # kiosk-wrapper-electron-js
+# kiosk-wrapper-electron-js

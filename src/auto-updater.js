@@ -102,4 +102,15 @@ function setup({ appVersion, isPackaged, requestQuit, logFileMaxBytes }) {
   return cleanup;
 }
 
-module.exports = { setup };
+// Manual trigger for the hidden top-left "force update" button. No-ops if
+// setup() hasn't run (dev mode).
+function checkNow() {
+  if (!initialized) {
+    log.warn("[Updater] checkNow called before setup; ignoring.");
+    return;
+  }
+  log.info("[Updater] Manual update check triggered.");
+  safeCheckForUpdates();
+}
+
+module.exports = { setup, checkNow };

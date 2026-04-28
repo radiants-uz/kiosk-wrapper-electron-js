@@ -235,6 +235,10 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.on(IPC.CHECK_UPDATE, () => {
+    autoUpdaterModule.checkNow();
+  });
+
   ipcMain.on(IPC.RESTART_PC, () => {
     requestKioskQuit();
     runRestartCommand();

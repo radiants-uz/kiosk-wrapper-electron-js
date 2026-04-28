@@ -16,6 +16,7 @@ const IPC = Object.freeze({
   ZOOM_OUT: "zoom-out",
   TRY_AGAIN: "try-again",
   RESTART_PC: "restart-pc",
+  CHECK_UPDATE: "check-update",
 });
 
 // Auto-update timing

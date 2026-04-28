@@ -114,9 +114,41 @@
     return false;
   });
 
+  // Hidden force-update button at top-left, 100px below the zoom buttons.
+  // Single tap triggers an immediate update check without waiting for the
+  // 5-minute interval. Visitors won't see it (transparent + opacity 0); staff
+  // know where to tap.
+  const updateBtn = document.createElement("button");
+  updateBtn.innerHTML = "Update";
+  updateBtn.style.cssText = `
+    position: fixed;
+    top: 100px;
+    left: 20px;
+    z-index: 999999;
+    background: transparent;
+    color: transparent;
+    border: none;
+    padding: 30px 40px;
+    border-radius: 5px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    opacity: 0;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  `;
+  updateBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    send(IPC.CHECK_UPDATE);
+  });
+  updateBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+
   document.body.appendChild(zoomIn);
   document.body.appendChild(zoomOut);
   document.body.appendChild(exitBtn);
+  document.body.appendChild(updateBtn);
 
   // Three-finger swipe exit gesture for touch panels. Three simultaneous
   // touches dragging right, up, or left by >=150px sends REQUEST_EXIT.

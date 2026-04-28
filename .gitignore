@@ -4,9 +4,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build outputs
+# Build outputs (NOT build/ - that holds source resources like icon.ico)
 dist/
-build/
 out/
 
 # OS generated files

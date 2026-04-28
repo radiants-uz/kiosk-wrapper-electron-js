@@ -81,20 +81,31 @@ All update activity is logged to `%AppData%\Iccu Platform\logs\main.log` on Wind
 
 ### Bumping the version and shipping a release
 
-1. Bump `version` in [package.json](package.json) (e.g. `2.0.1` → `2.0.2`). Must be strictly greater than the deployed version (semver).
-2. Build on Windows:
-   ```
-   npm install
-   npm run dist:win
-   ```
-3. Create a new **GitHub Release** on `radiants-uz/kiosk-wrapper-electron-js` with tag `v2.0.2` (matching the version). Attach all three artifacts from [dist/](dist/):
-   - `Iccu Platform Setup X.Y.Z.exe` — the full installer
-   - `Iccu Platform Setup X.Y.Z.exe.blockmap` — for delta updates
-   - `latest.yml` — the metadata file electron-updater fetches first
+Releases are fully automated via GitHub Actions ([.github/workflows/release.yml](.github/workflows/release.yml)). You don't build on your own machine — you push a tag and CI does the rest.
 
-   You can do this manually via the GitHub web UI, or set `GH_TOKEN` and run `npm run dist:win -- --publish always` to upload automatically.
+From your local clone:
 
-4. **Public vs private repo**: `electron-updater` works with public repos out of the box. If `radiants-uz/kiosk-wrapper-electron-js` is private, kiosks need a `GH_TOKEN` env var (or a `token` field on the `publish` config) to authenticate. Public is simpler operationally.
+```bash
+# 1. Bump version (commits + tags in one step)
+npm version patch          # 2.0.1 → 2.0.2  (or `minor` / `major`)
+
+# 2. Push commit + tag
+git push --follow-tags
+```
+
+That triggers the workflow, which on a Windows runner:
+1. Checks the tag matches `package.json` version (fails fast if not)
+2. Runs `npm ci`
+3. Runs `electron-builder --win --publish always`
+4. Creates a public release at `https://github.com/radiants-uz/kiosk-wrapper-electron-js/releases/tag/v2.0.2` with `Iccu Platform Setup 2.0.2.exe`, the `.blockmap`, and `latest.yml` attached
+
+The 20 kiosks see the new release on their next 4-hour update check, download in the background, and install during the next 03:00–05:00 window.
+
+**Watching a release:** https://github.com/radiants-uz/kiosk-wrapper-electron-js/actions — each tag push shows up as a workflow run. Build takes ~3–5 minutes.
+
+**Re-running a failed release:** open the failed run in Actions and click "Re-run jobs", or use the "Run workflow" button on the workflow page (workflow_dispatch).
+
+**Public vs private repo:** the repo is public, so kiosks need no token. If you ever flip it private, add a `GH_TOKEN` to each kiosk's environment or set a `token` field on the publish config (and rotate it).
 
 ### Testing on one kiosk before rolling out
 

@@ -36,7 +36,8 @@
       {
         "provider": "github",
         "owner": "radiants-uz",
-        "repo": "kiosk-wrapper-electron-js"
+        "repo": "kiosk-wrapper-electron-js",
+        "releaseType": "release"
       }
     ],
     "files": [

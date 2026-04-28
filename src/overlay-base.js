@@ -118,6 +118,54 @@
   document.body.appendChild(zoomOut);
   document.body.appendChild(exitBtn);
 
+  // Three-finger swipe exit gesture for touch panels. Three simultaneous
+  // touches dragging right, up, or left by >=150px sends REQUEST_EXIT.
+  // Visitors won't accidentally trigger this; staff use it as an alternative
+  // to the 5-second corner-hold. "Down" is intentionally NOT a trigger so
+  // it doesn't conflict with normal scroll-style gestures.
+  const SWIPE_THRESHOLD_PX = 150;
+  let swipeStart = null;
+
+  const onTouchStart = (e) => {
+    if (e.touches.length !== 3) {
+      swipeStart = null;
+      return;
+    }
+    swipeStart = Array.from(e.touches).map((t) => ({
+      x: t.clientX,
+      y: t.clientY,
+    }));
+  };
+
+  const onTouchMove = (e) => {
+    if (!swipeStart || e.touches.length !== 3) return;
+    const current = Array.from(e.touches);
+    let dxSum = 0;
+    let dySum = 0;
+    for (let i = 0; i < 3; i++) {
+      dxSum += current[i].clientX - swipeStart[i].x;
+      dySum += current[i].clientY - swipeStart[i].y;
+    }
+    const dx = dxSum / 3;
+    const dy = dySum / 3;
+    const right = dx > SWIPE_THRESHOLD_PX;
+    const left = dx < -SWIPE_THRESHOLD_PX;
+    const up = dy < -SWIPE_THRESHOLD_PX;
+    if (right || left || up) {
+      swipeStart = null;
+      send(IPC.REQUEST_EXIT);
+    }
+  };
+
+  const resetSwipe = () => {
+    swipeStart = null;
+  };
+
+  window.addEventListener("touchstart", onTouchStart, { passive: true });
+  window.addEventListener("touchmove", onTouchMove, { passive: true });
+  window.addEventListener("touchend", resetSwipe, { passive: true });
+  window.addEventListener("touchcancel", resetSwipe, { passive: true });
+
   // Bottom-right version label - lets a tech support person glance at a
   // kiosk screen and know which build is running. pointer-events:none so it
   // never intercepts clicks on the underlying website.

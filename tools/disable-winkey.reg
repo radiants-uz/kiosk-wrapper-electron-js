@@ -1,0 +1,15 @@
+Windows Registry Editor Version 5.00
+
+; Disables the Windows key on each kiosk PC at the OS level.
+;
+; The Electron app blocks Win+combos (Win+R, Win+E, Win+Tab, etc.) but the
+; bare Win key alone is reserved by the Windows shell and cannot be blocked
+; from any userspace app. This Scancode Map registry entry disables both
+; left (0xE05B) and right (0xE05C) Win keys at the keyboard driver level.
+;
+; To apply: double-click this file on each kiosk -> "Yes" to the prompt ->
+;   REBOOT (the Scancode Map is read once at boot).
+; To revert: delete the "Scancode Map" value from the same key, reboot.
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Keyboard Layout]
+"Scancode Map"=hex:00,00,00,00,00,00,00,00,03,00,00,00,00,00,5b,e0,00,00,5c,e0,00,00,00,00

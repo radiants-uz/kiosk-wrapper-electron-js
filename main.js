@@ -4,6 +4,8 @@ const {
   systemPreferences,
   ipcMain,
   net,
+  globalShortcut,
+  Menu,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -61,6 +63,11 @@ function requestKioskQuit() {
 
 app.commandLine.appendSwitch("enable-features", "MediaStreamTrack");
 app.commandLine.appendSwitch("disable-features", "OutOfBlinkCors");
+
+// Strip the application menu globally. On Windows/Linux this removes the
+// menu bar entirely; on every platform it kills menu-accelerator keys (Alt
+// to focus the menu, F10 to open it) so a USB keyboard can't reach a menu.
+Menu.setApplicationMenu(null);
 
 async function checkMicrophonePermission() {
   if (process.platform !== "darwin") return true;
@@ -181,42 +188,19 @@ function createWindow() {
   loadApp();
 }
 
-// Keyboard escape-attempt filter for kiosk mode. Returns early on any allowed
-// key so the cascade reads top-to-bottom: explicit allow, then categorical
-// blocks, then modifier-combo blocks.
+// Touch-only kiosk: block every key event except a single hidden support
+// escape hatch (Ctrl/Cmd+Shift+C toggles DevTools). Visitors won't discover
+// the combo, but an on-site tech can plug in a USB keyboard to debug.
 function handleKeyDown(event, input) {
   if (input.type !== "keyDown") return;
 
-  // DevTools toggle - intentionally allowed for on-site debugging.
   if (input.shift && (input.control || input.meta) && /^c$/i.test(input.key)) {
     mainWindow.webContents.toggleDevTools();
     event.preventDefault();
     return;
   }
 
-  if (input.key.startsWith("F") || input.key === "Escape") {
-    event.preventDefault();
-    return;
-  }
-
-  const hasMod = input.control || input.meta || input.alt;
-  if (!hasMod) return;
-
-  if (["w", "W", "q", "Q", "F4"].includes(input.key)) {
-    event.preventDefault();
-    return;
-  }
-  if (input.alt && input.key === "Tab") {
-    event.preventDefault();
-    return;
-  }
-  if (input.meta) {
-    event.preventDefault();
-    return;
-  }
-  if (input.control && input.shift && input.key === "Escape") {
-    event.preventDefault();
-  }
+  event.preventDefault();
 }
 
 function registerIpcHandlers() {
@@ -254,6 +238,39 @@ function registerIpcHandlers() {
     requestKioskQuit();
     runRestartCommand();
     setTimeout(() => app.quit(), 1000);
+  });
+}
+
+// Best-effort lockdown of Windows-key combinations from inside the app.
+// IMPORTANT: the bare Win key (no combo) is reserved by the OS shell and
+// CANNOT be blocked from userspace - that requires either Group Policy or
+// a Scancode Map registry entry on each kiosk PC. See README.
+function blockWindowsKeyShortcuts() {
+  if (process.platform !== "win32") return;
+  const combos = [
+    "Super+R", // Run dialog
+    "Super+E", // File Explorer
+    "Super+I", // Settings
+    "Super+S", // Search
+    "Super+D", // Show desktop
+    "Super+L", // Lock screen (often intercepted by OS first)
+    "Super+Tab", // Task view
+    "Super+Up",
+    "Super+Down",
+    "Super+Left",
+    "Super+Right",
+    "Alt+F4",
+  ];
+  combos.forEach((combo) => {
+    try {
+      globalShortcut.register(combo, () => {});
+    } catch (e) {
+      console.warn(
+        "Could not register block for",
+        combo,
+        e && e.message,
+      );
+    }
   });
 }
 
@@ -309,6 +326,7 @@ app.whenReady().then(async () => {
   await checkMicrophonePermission();
   createWindow();
   registerIpcHandlers();
+  blockWindowsKeyShortcuts();
 
   updaterCleanup = autoUpdaterModule.setup({
     appVersion: app.getVersion(),
@@ -330,6 +348,7 @@ app.on("before-quit", (event) => {
     retryIntervalId = null;
   }
   if (typeof updaterCleanup === "function") updaterCleanup();
+  globalShortcut.unregisterAll();
 });
 
 app.on("window-all-closed", () => {
